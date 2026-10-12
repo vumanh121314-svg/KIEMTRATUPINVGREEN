@@ -87,7 +87,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 
-# Hàm đọc file KMZ có sẵn trên GitHub (đã bổ sung đọc thêm trường description/khách hàng)
+# Hàm đọc file KMZ có sẵn
 def load_stations_from_kmz_path(file_path):
     stations_list = []
     try:
@@ -192,7 +192,7 @@ entered_lon = st.sidebar.number_input(
 
 target_lat, target_lon = entered_lat, entered_lon
 
-# Tính toán khoảng cách tới tất cả các tủ pin để đưa ra danh sách lựa chọn
+# Tính toán khoảng cách tới tất cả các tủ pin
 station_options = []
 if all_stations:
     for stn in all_stations:
@@ -201,7 +201,7 @@ if all_stations:
 
     station_options = sorted(station_options, key=lambda x: x["dist_hb"])
 
-# --- LỰA CHỌN NHIỀU ĐƯỜNG ĐI (TỦ PIN) ---
+# --- LỰA CHỌN TỦ PIN ---
 st.sidebar.markdown("---")
 st.sidebar.header("🚏 Chọn tủ pin muốn xem đường đi")
 
@@ -228,9 +228,15 @@ if real_distance is None:
         [chosen_station["lat"], chosen_station["lon"]],
     ]
 
-# --- KHỞI TẠO BẢN ĐỒ ---
-m = folium.Map(location=[target_lat, target_lon], zoom_start=13, tiles="OpenStreetMap")
+# --- KHỞI TẠO BẢN ĐỒ TỰ ĐỘNG FOCUS VÀO TỦ PIN ĐƯỢC CHỌN ---
+# Tâm bản đồ được đặt tại tọa độ của tủ pin (chosen_station) với zoom_start=15 để nhìn cận cảnh
+m = folium.Map(
+    location=[chosen_station["lat"], chosen_station["lon"]],
+    zoom_start=15,
+    tiles="OpenStreetMap",
+)
 
+# Đánh dấu tất cả các tủ pin khác (icon màu xanh lá)
 for item in top_stations:
     stn = item["station"]
     folium.Marker(
@@ -239,18 +245,21 @@ for item in top_stations:
         icon=folium.Icon(color="green", icon="battery-full", prefix="fa"),
     ).add_to(m)
 
+# Đánh dấu tủ pin đang được chọn (icon màu cam nổi bật)
 folium.Marker(
     location=[chosen_station["lat"], chosen_station["lon"]],
     popup=f"Đang chọn: {chosen_station['name']}",
     icon=folium.Icon(color="orange", icon="bolt", prefix="fa"),
 ).add_to(m)
 
+# Đánh dấu vị trí hiện tại của bạn (icon màu đỏ)
 folium.Marker(
     location=[target_lat, target_lon],
     popup="Vị trí của bạn",
     icon=folium.Icon(color="red", icon="user", prefix="fa"),
 ).add_to(m)
 
+# Vẽ tuyến đường đi thực tế
 if route_coords:
     folium.PolyLine(
         locations=route_coords,
@@ -271,7 +280,6 @@ with col_info:
     st.subheader("📊 Thông tin tủ pin đã chọn")
     st.success(f"**Tủ đổi pin:**\n\n🔹 **{chosen_station['name']}**")
     
-    # --- HIỂN THỊ THÔNG TIN KHÁCH HÀNG / GHI CHÚ ---
     st.info(f"👤 **Thông tin khách hàng / Ghi chú:**\n\n{chosen_station.get('customer_info', 'Không có thông tin')}")
 
     st.metric(label="Khoảng cách đường đi thực tế", value=f"{real_distance:.2f} km")
