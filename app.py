@@ -173,23 +173,44 @@ loc = streamlit_geolocation()
 
 default_lat, default_lon = 11.50567, 106.88714
 
+# Khởi tạo session_state lưu tọa độ thủ công
+if "manual_lat" not in st.session_state:
+    st.session_state.manual_lat = default_lat
+if "manual_lon" not in st.session_state:
+    st.session_state.manual_lon = default_lon
+
 if loc and loc.get("latitude") and loc.get("longitude"):
     current_lat = loc["latitude"]
     current_lon = loc["longitude"]
     st.sidebar.success("Đã định vị thành công vị trí hiện tại!")
 else:
-    current_lat, current_lon = default_lat, default_lon
+    current_lat = st.session_state.manual_lat
+    current_lon = st.session_state.manual_lon
 
 st.sidebar.markdown("---")
-st.sidebar.subheader("2. Hoặc nhập tọa độ thủ công")
-entered_lat = st.sidebar.number_input(
-    "Vĩ độ (Lat)", value=float(current_lat), format="%.6f"
-)
-entered_lon = st.sidebar.number_input(
-    "Kinh độ (Lon)", value=float(current_lon), format="%.6f"
+st.sidebar.subheader("2. Nhập tọa độ thủ công")
+st.sidebar.caption("Nhập theo định dạng: `vĩ_độ, kinh_độ` (Ví dụ: `11.527087, 106.906723`)")
+
+coord_input = st.sidebar.text_input(
+    "Tọa độ (Lat, Lon)", 
+    value=f"{current_lat}, {current_lon}"
 )
 
-target_lat, target_lon = entered_lat, entered_lon
+if st.sidebar.button("🔍 Tìm kiếm theo tọa độ"):
+    try:
+        parts = coord_input.replace(" ", "").split(",")
+        if len(parts) == 2:
+            st.session_state.manual_lat = float(parts[0])
+            st.session_state.manual_lon = float(parts[1])
+            st.success("Đã cập nhật tọa độ mới!")
+            st.rerun()
+        else:
+            st.error("Sai định dạng! Vui lòng nhập theo mẫu: `vĩ_độ, kinh_độ`")
+    except ValueError:
+        st.error("Tọa độ không hợp lệ! Vui lòng chỉ nhập số.")
+
+target_lat = st.session_state.manual_lat
+target_lon = st.session_state.manual_lon
 
 # Tính toán khoảng cách tới tất cả các tủ pin
 station_options = []
@@ -282,12 +303,4 @@ if station_labels:
         st.write(f"📍 **Tọa độ tủ:** `{chosen_station['lat']}`, `{chosen_station['lon']}`")
 
         maps_url = (
-            f"https://www.google.com/maps/dir/?api=1&destination="
-            f"{chosen_station['lat']},{chosen_station['lon']}"
-        )
-        st.markdown(
-            f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
-            unsafe_allow_html=True,
-        )
-else:
-    st.warning("⚠️ Không tìm thấy file `.kmz` nào trong thư mục hiện tại. Vui lòng đặt ít nhất một file KMZ chứa danh sách trạm đổi pin cùng thư mục với script này.")
+            f"
