@@ -1,1 +1,5 @@
-pip freeze > requirements.txt
+streamlit
+streamlit-folium
+folium
+pandas
+openpyxl
