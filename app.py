@@ -53,7 +53,7 @@ st.markdown(
 )
 
 
-# Hàm gọi API OSRM lấy tuyến đường thực tế
+# Hàm gọi API OSRM lấy tuyến đường thực tế (Đã tối ưu cache và lấy thêm thời gian di chuyển)
 @st.cache_data
 def get_osrm_route(lat1, lon1, lat2, lon2):
     url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
@@ -64,12 +64,13 @@ def get_osrm_route(lat1, lon1, lat2, lon2):
             if "routes" in data and len(data["routes"]) > 0:
                 route = data["routes"][0]
                 distance_km = route["distance"] / 1000.0
+                duration_min = route["duration"] / 60.0  # Thời gian tính bằng phút
                 coords = route["geometry"]["coordinates"]
                 latlon_coords = [[c[1], c[0]] for c in coords]
-                return distance_km, latlon_coords
+                return distance_km, duration_min, latlon_coords
     except Exception:
         pass
-    return None, None
+    return None, None, None
 
 
 # Hàm tính khoảng cách phụ trợ (Haversine)
@@ -87,7 +88,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return R * c
 
 
-# Hàm đọc file KMZ có sẵn
+# Hàm đọc file KMZ/KML chứa dữ liệu tủ pin và thông tin khách hàng
 def load_stations_from_kmz_path(file_path):
     stations_list = []
     try:
@@ -192,7 +193,7 @@ entered_lon = st.sidebar.number_input(
 
 target_lat, target_lon = entered_lat, entered_lon
 
-# Tính toán khoảng cách tới tất cả các tủ pin
+# Tính toán khoảng cách chim bay tới tất cả các tủ pin để sắp xếp
 station_options = []
 if all_stations:
     for stn in all_stations:
@@ -218,25 +219,27 @@ selected_label = st.sidebar.selectbox(
 selected_index = station_labels.index(selected_label)
 chosen_station = top_stations[selected_index]["station"]
 
-real_distance, route_coords = get_osrm_route(
+# TỰ ĐỘNG TÍNH TOÁN KHOẢNG CÁCH VÀ LỘ TRÌNH ĐƯỜNG BỘ THỰC TẾ
+real_distance, route_duration, route_coords = get_osrm_route(
     target_lat, target_lon, chosen_station["lat"], chosen_station["lon"]
 )
+
 if real_distance is None:
     real_distance = top_stations[selected_index]["dist_hb"]
+    route_duration = real_distance * 3  # Ước tính thời gian tạm tính nếu mất kết nối mạng
     route_coords = [
         [target_lat, target_lon],
         [chosen_station["lat"], chosen_station["lon"]],
     ]
 
-# --- KHỞI TẠO BẢN ĐỒ TỰ ĐỘNG FOCUS VÀO TỦ PIN ĐƯỢC CHỌN ---
-# Tâm bản đồ được đặt tại tọa độ của tủ pin (chosen_station) với zoom_start=15 để nhìn cận cảnh
+# --- KHỞI TẠO BẢN ĐỒ FOCUS VÀO TỦ ĐƯỢC CHỌN ---
 m = folium.Map(
     location=[chosen_station["lat"], chosen_station["lon"]],
     zoom_start=15,
     tiles="OpenStreetMap",
 )
 
-# Đánh dấu tất cả các tủ pin khác (icon màu xanh lá)
+# Đánh dấu các tủ pin xung quanh
 for item in top_stations:
     stn = item["station"]
     folium.Marker(
@@ -245,21 +248,21 @@ for item in top_stations:
         icon=folium.Icon(color="green", icon="battery-full", prefix="fa"),
     ).add_to(m)
 
-# Đánh dấu tủ pin đang được chọn (icon màu cam nổi bật)
+# Đánh dấu tủ pin đang được chọn (màu cam)
 folium.Marker(
     location=[chosen_station["lat"], chosen_station["lon"]],
     popup=f"Đang chọn: {chosen_station['name']}",
     icon=folium.Icon(color="orange", icon="bolt", prefix="fa"),
 ).add_to(m)
 
-# Đánh dấu vị trí hiện tại của bạn (icon màu đỏ)
+# Đánh dấu vị trí của bạn (màu đỏ)
 folium.Marker(
     location=[target_lat, target_lon],
     popup="Vị trí của bạn",
     icon=folium.Icon(color="red", icon="user", prefix="fa"),
 ).add_to(m)
 
-# Vẽ tuyến đường đi thực tế
+# Vẽ tuyến đường đi thực tế bám theo đường bộ
 if route_coords:
     folium.PolyLine(
         locations=route_coords,
@@ -282,17 +285,4 @@ with col_info:
     
     st.info(f"👤 **Thông tin khách hàng / Ghi chú:**\n\n{chosen_station.get('customer_info', 'Không có thông tin')}")
 
-    st.metric(label="Khoảng cách đường đi thực tế", value=f"{real_distance:.2f} km")
-
-    st.write(
-        f"📍 **Tọa độ tủ:** `{chosen_station['lat']}`, `{chosen_station['lon']}`"
-    )
-
-    maps_url = (
-        f"https://www.google.com/maps/dir/?api=1&destination="
-        f"{chosen_station['lat']},{chosen_station['lon']}"
-    )
-    st.markdown(
-        f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
-        unsafe_allow_html=True,
-    )
+    # Hiển
