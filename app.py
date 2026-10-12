@@ -1,20 +1,21 @@
+import io
 import math
+import zipfile
 from xml.etree import ElementTree as ET
 import folium
-from folium.plugins import LocateControl
 import streamlit as st
 from streamlit_folium import st_folium
 
 st.set_page_config(
-    page_title="Tìm Tủ Pin V-GREEN Từ Vị Trí Nhập Vào",
+    page_title="Tìm Tủ Pin V-GREEN Từ File KMZ",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("🔋 Tìm Đường Ngắn Nhất Đến Tủ Pin V-GREEN Từ Vị Trí Tùy Chỉnh")
+st.title("🔋 Tìm Đường Ngắn Nhất Đến Tủ Pin V-GREEN (Hỗ trợ file KMZ)")
 st.markdown(
-    "Nhập tọa độ hoặc địa điểm cần tìm kiếm để hệ thống so sánh với cơ sở dữ"
-    " liệu 4 file bản đồ và tìm ra tủ pin gần nhất."
+    "Tải lên các file `.kmz` của bạn, nhập vị trí cần tìm kiếm để hệ thống so"
+    " sánh và tìm ra tủ pin gần nhất."
 )
 
 
@@ -33,48 +34,30 @@ def haversine(lat1, lon1, lat2, lon2):
   return R * c
 
 
-# Hàm đọc dữ liệu trạm từ file KML (bạn có thể đưa 4 file doc.kml vào cùng thư mục dự án)
-def load_stations_from_kml(filename):
+# Hàm trích xuất dữ liệu từ file KMZ hoặc KML
+def load_stations_from_kmz_or_kml(uploaded_file):
   stations_list = []
   try:
-    tree = ET.parse(filename)
-    root = tree.getroot()
-    namespaces = {"kml": "http://www.opengis.net/kml/2.2"}
-    for placemark in root.findall(".//kml:Placemark", namespaces):
-      name_elem = placemark.find("kml:name", namespaces)
-      coord_elem = placemark.find(".//kml:coordinates", namespaces)
-      if name_elem is not None and coord_elem is not None:
-        coords_text = coord_elem.text.strip().split()[0]
-        parts = coords_text.split(",")
-        if len(parts) >= 2:
-          lon = float(parts[0])
-          lat = float(parts[1])
-          stations_list.append(
-              {"name": name_elem.text.strip(), "lat": lat, "lon": lon}
-          )
-  except Exception:
-    # Nếu chưa đưa đủ file vào thư mục thì bỏ qua để không lỗi app
-    pass
-  return stations_list
+    file_bytes = uploaded_file.read()
+    kml_content = None
 
+    # Kiểm tra nếu là file .kmz (bản chất là file zip)
+    if uploaded_file.name.endswith(".kmz") or zipfile.is_zipfile(
+        io.BytesIO(file_bytes)
+    ):
+      with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+        # Tìm file kml bên trong file kmz (thường là doc.kml)
+        for filename in z.namelist():
+          if filename.endswith(".kml"):
+            with z.open(filename) as kml_file:
+              kml_content = kml_file.read()
+            break
+    else:
+      # Nếu là file .kml thông thường
+      kml_content = file_bytes
 
-# Tự động quét dữ liệu từ 4 file KML nếu bạn đặt tên chúng trong thư mục dự án:
-# 1. doc_phurieng.kml (hoặc tên tương ứng)
-# Hoặc bạn có thể tải chúng trực tiếp ở Sidebar bên dưới:
-st.sidebar.header("📁 Dữ liệu 4 file bản đồ")
-uploaded_files = st.sidebar.file_uploader(
-    "Tải lên 4 file bản đồ (.kml hoặc doc.kml)",
-    type=["kml"],
-    accept_multiple_files=True,
-)
-
-all_stations = []
-if uploaded_files:
-  for uploaded_file in uploaded_files:
-    # Xử lý đọc file trực tiếp từ giao diện tải lên
-    try:
-      tree = ET.parse(uploaded_file)
-      root = tree.getroot()
+    if kml_content:
+      root = ET.fromstring(kml_content)
       namespaces = {"kml": "http://www.opengis.net/kml/2.2"}
       for placemark in root.findall(".//kml:Placemark", namespaces):
         name_elem = placemark.find("kml:name", namespaces)
@@ -83,18 +66,33 @@ if uploaded_files:
           coords_text = coord_elem.text.strip().split()[0]
           parts = coords_text.split(",")
           if len(parts) >= 2:
-            all_stations.append({
+            stations_list.append({
                 "name": name_elem.text.strip(),
                 "lat": float(parts[1]),
                 "lon": float(parts[0]),
             })
-    except Exception as e:
-      st.sidebar.error(f"Lỗi file {uploaded_file.name}: {e}")
-  st.sidebar.success(f"Đã nạp tổng cộng {len(all_stations)} điểm từ các file!")
+  except Exception as e:
+    st.sidebar.error(f"Lỗi đọc file {uploaded_file.name}: {e}")
+  return stations_list
+
+
+# --- THANH BÊN: TẢI LÊN CÁC FILE KMZ ---
+st.sidebar.header("📁 Tải lên file bản đồ KMZ")
+uploaded_files = st.sidebar.file_uploader(
+    "Chọn các file .kmz của bạn (có thể chọn nhiều file cùng lúc)",
+    type=["kmz", "kml"],
+    accept_multiple_files=True,
+)
+
+all_stations = []
+if uploaded_files:
+  for uploaded_file in uploaded_files:
+    st_list = load_stations_from_kmz_or_kml(uploaded_file)
+    all_stations.extend(st_list)
+  st.sidebar.success(f"Đã nạp tổng cộng {len(all_stations)} điểm tủ pin từ file!")
 else:
   st.sidebar.info(
-      "💡 Vui lòng tải các file `doc.kml` của 4 bản đồ lên đây để hệ thống có"
-      " dữ liệu so sánh."
+      "💡 Vui lòng tải các file bản đồ `.kmz` lên đây để hệ thống nạp dữ liệu."
   )
 
 # --- KHU VỰC NHẬP VỊ TRÍ CẦN TÌM KIẾM ---
@@ -122,12 +120,12 @@ if input_mode == "Nhập tọa độ thủ công":
     )
   st.session_state["search_loc"] = (entered_lat, entered_lon)
 
-# Khởi tạo bản đồ tại vị trí tìm kiếm
+# Khởi tạo bản đồ
 m = folium.Map(
     location=st.session_state["search_loc"], zoom_start=13, tiles="OpenStreetMap"
 )
 
-# Đánh dấu các tủ pin trên 4 file
+# Đánh dấu các tủ pin từ file KMZ
 for stn in all_stations:
   folium.Marker(
       location=[stn["lat"], stn["lon"]],
@@ -135,7 +133,7 @@ for stn in all_stations:
       icon=folium.Icon(color="green", icon="motorcycle", prefix="fa"),
   ).add_to(m)
 
-# Đánh dấu vị trí cần tìm kiếm (Icon màu cam/đỏ)
+# Đánh dấu vị trí cần tìm kiếm
 target_lat, target_lon = st.session_state["search_loc"]
 folium.Marker(
     location=[target_lat, target_lon],
@@ -143,7 +141,7 @@ folium.Marker(
     icon=folium.Icon(color="orange", icon="crosshairs", prefix="fa"),
 ).add_to(m)
 
-# Tính toán tìm tủ pin gần vị trí nhập vào nhất
+# Tính toán tìm tủ pin gần nhất
 nearest_station = None
 min_dist = float("inf")
 
@@ -155,7 +153,6 @@ if all_stations:
       nearest_station = stn
 
   if nearest_station:
-    # Vẽ đường nối từ vị trí nhập vào tới tủ pin gần nhất
     folium.PolyLine(
         locations=[
             [target_lat, target_lon],
@@ -178,7 +175,6 @@ with col1:
     st.markdown("*(Click vào bất kỳ điểm nào trên bản đồ để chọn vị trí)*")
   output = st_folium(m, width="100%", height=550)
 
-  # Nếu chọn chế độ click bản đồ và người dùng bấm vào map
   if (
       input_mode == "Click trực tiếp trên bản đồ"
       and output
@@ -216,4 +212,4 @@ with col2:
         unsafe_allow_html=True,
     )
   else:
-    st.warning("Vui lòng tải các file bản đồ lên ở thanh bên trái.")
+    st.warning("Vui lòng tải các file bản đồ `.kmz` lên ở thanh bên trái.")
