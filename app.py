@@ -11,6 +11,12 @@ st.set_page_config(
 
 st.title("🔋 Tìm Khoảng Cách Ngắn Nhất Đến Tủ Pin V-GREEN Từ File KML")
 
+# Tạo thanh công cụ bên trái (Sidebar) để tải file KML lên
+st.sidebar.header("📁 Tải dữ liệu bản đồ")
+uploaded_file = st.sidebar.file_uploader(
+    "Tải lên file KML của bạn (ví dụ: doc.kml)", type=["kml", "KMZ"]
+)
+
 
 # Hàm tính khoảng cách Haversine giữa 2 tọa độ GPS (km)
 def haversine(lat1, lon1, lat2, lon2):
@@ -27,12 +33,11 @@ def haversine(lat1, lon1, lat2, lon2):
   return R * c
 
 
-# Tải file KML (bạn có thể lưu nội dung từ nguồn thành file doc.kml)
-@st.cache_data
-def load_stations_from_kml(kml_path="doc.kml"):
+# Hàm đọc dữ liệu từ file KML được tải lên
+def load_stations_from_uploaded_file(kml_file):
   stations_list = []
   try:
-    tree = ET.parse(kml_path)
+    tree = ET.parse(kml_file)
     root = tree.getroot()
     namespaces = {"kml": "http://www.opengis.net/kml/2.2"}
     for placemark in root.findall(".//kml:Placemark", namespaces):
@@ -56,20 +61,27 @@ def load_stations_from_kml(kml_path="doc.kml"):
               }
           )
   except Exception as e:
-    st.error(f"Lỗi đọc file KML: {e}")
+    st.sidebar.error(f"Lỗi đọc file KML: {e}")
   return stations_list
 
 
-# Nạp dữ liệu tủ pin
-stations = load_stations_from_kml()
+# Nạp dữ liệu tủ pin từ file người dùng upload
+stations = []
+if uploaded_file is not None:
+  stations = load_stations_from_uploaded_file(uploaded_file)
+  st.sidebar.success(f"Đã tải thành công {len(stations)} điểm tủ pin!")
+else:
+  st.sidebar.warning(
+      "⚠️ Vui lòng tải file `.kml` lên ở khung trên để hiển thị bản đồ tủ pin."
+  )
 
 if not stations:
-  st.warning(
-      "Không tìm thấy tọa độ tủ pin nào trong file. Vui lòng kiểm tra lại file"
-      " doc.kml"
+  st.info(
+      "👈 Hãy tải file KML của bạn lên thông qua bảng điều khiển bên trái để bắt"
+      " đầu."
   )
 else:
-  # Thiết lập tọa độ mặc định ban đầu (lấy điểm đầu tiên hoặc tọa độ trung tâm)
+  # Thiết lập tọa độ mặc định ban đầu dựa trên điểm đầu tiên của file
   default_lat = stations[0]["lat"]
   default_lon = stations[0]["lon"]
 
@@ -83,7 +95,7 @@ else:
       tiles="OpenStreetMap",
   )
 
-  # Đánh dấu các tủ pin
+  # Đánh dấu các tủ pin lên bản đồ (Icon màu xanh lá)
   for stn in stations:
     folium.Marker(
         location=[stn["lat"], stn["lon"]],
@@ -91,7 +103,7 @@ else:
         icon=folium.Icon(color="green", icon="motorcycle", prefix="fa"),
     ).add_to(m)
 
-  # Đánh dấu vị trí hiện tại của bạn
+  # Đánh dấu vị trí hiện tại của bạn (Icon màu đỏ)
   curr_lat, curr_lon = st.session_state["current_loc"]
   folium.Marker(
       location=[curr_lat, curr_lon],
@@ -124,7 +136,7 @@ else:
         ),
     ).add_to(m)
 
-  # Giao diện hiển thị
+  # Giao diện hiển thị chia 2 cột
   col1, col2 = st.columns([2, 1])
 
   with col1:
