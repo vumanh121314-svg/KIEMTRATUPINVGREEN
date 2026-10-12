@@ -43,14 +43,6 @@ st.markdown(
         background-color: #15803d;
         color: white;
     }
-    /* Đổi màu chữ và số của st.metric thành màu đen */
-    [data-testid="stMetricLabel"] p {
-        color: #111827 !important;
-        font-weight: 600;
-    }
-    [data-testid="stMetricValue"] div {
-        color: #111827 !important;
-    }
     </style>
     <div class="main-header">
         <h1>🔋 V-GREEN - HỆ THỐNG TỦ ĐỔI PIN THÔNG MINH</h1>
@@ -219,3 +211,83 @@ station_labels = [
 ]
 
 if station_labels:
+    selected_label = st.sidebar.selectbox(
+        "Danh sách các tủ pin gần bạn:", station_labels
+    )
+    selected_index = station_labels.index(selected_label)
+    chosen_station = top_stations[selected_index]["station"]
+
+    real_distance, route_coords = get_osrm_route(
+        target_lat, target_lon, chosen_station["lat"], chosen_station["lon"]
+    )
+    if real_distance is None:
+        real_distance = top_stations[selected_index]["dist_hb"]
+        route_coords = [
+            [target_lat, target_lon],
+            [chosen_station["lat"], chosen_station["lon"]],
+        ]
+
+    # --- KHỞI TẠO BẢN ĐỒ TỰ ĐỘNG FOCUS VÀO TỦ PIN ĐƯỢC CHỌN ---
+    m = folium.Map(
+        location=[chosen_station["lat"], chosen_station["lon"]],
+        zoom_start=15,
+        tiles="OpenStreetMap",
+    )
+
+    # Đánh dấu tất cả các tủ pin khác
+    for item in top_stations:
+        stn = item["station"]
+        folium.Marker(
+            location=[stn["lat"], stn["lon"]],
+            popup=stn["name"],
+            icon=folium.Icon(color="green", icon="battery-full", prefix="fa"),
+        ).add_to(m)
+
+    # Đánh dấu tủ pin đang được chọn
+    folium.Marker(
+        location=[chosen_station["lat"], chosen_station["lon"]],
+        popup=f"Đang chọn: {chosen_station['name']}",
+        icon=folium.Icon(color="orange", icon="bolt", prefix="fa"),
+    ).add_to(m)
+
+    # Đánh dấu vị trí hiện tại của bạn
+    folium.Marker(
+        location=[target_lat, target_lon],
+        popup="Vị trí của bạn",
+        icon=folium.Icon(color="red", icon="user", prefix="fa"),
+    ).add_to(m)
+
+    # Vẽ tuyến đường đi thực tế
+    if route_coords:
+        folium.PolyLine(
+            locations=route_coords,
+            color="blue",
+            weight=5,
+            opacity=0.8,
+            tooltip=f"Lộ trình tới {chosen_station['name']}",
+        ).add_to(m)
+
+    # --- HIỂN THỊ GIAO DIỆN CHÍNH ---
+    col_map, col_info = st.columns([2, 1])
+
+    with col_map:
+        st.subheader("🗺️ Bản đồ định vị & Lộ trình đổi pin")
+        st_folium(m, width="100%", height=500)
+
+    with col_info:
+        st.subheader("📊 Thông tin tủ pin đã chọn")
+        st.success(f"**Tủ đổi pin:**\n\n🔹 **{chosen_station['name']}**")
+        st.info(f"👤 **Thông tin khách hàng / Ghi chú:**\n\n{chosen_station.get('customer_info', 'Không có thông tin')}")
+        st.metric(label="Khoảng cách đường đi thực tế", value=f"{real_distance:.2f} km")
+        st.write(f"📍 **Tọa độ tủ:** `{chosen_station['lat']}`, `{chosen_station['lon']}`")
+
+        maps_url = (
+            f"https://www.google.com/maps/dir/?api=1&destination="
+            f"{chosen_station['lat']},{chosen_station['lon']}"
+        )
+        st.markdown(
+            f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
+            unsafe_allow_html=True,
+        )
+else:
+    st.warning("⚠️ Không tìm thấy file `.kmz` nào trong thư mục hiện tại. Vui lòng đặt ít nhất một file KMZ chứa danh sách trạm đổi pin cùng thư mục với script này.")
