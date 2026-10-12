@@ -54,99 +54,111 @@ st.markdown(
 
 
 # Hàm gọi API OSRM lấy tuyến đường thực tế
+@st.cache_data
 def get_osrm_route(lat1, lon1, lat2, lon2):
-  url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
-  try:
-    response = requests.get(url, timeout=5)
-    if response.status_code == 200:
-      data = response.json()
-      if "routes" in data and len(data["routes"]) > 0:
-        route = data["routes"][0]
-        distance_km = route["distance"] / 1000.0
-        coords = route["geometry"]["coordinates"]
-        latlon_coords = [[c[1], c[0]] for c in coords]
-        return distance_km, latlon_coords
-  except Exception:
-    pass
-  return None, None
+    url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            if "routes" in data and len(data["routes"]) > 0:
+                route = data["routes"][0]
+                distance_km = route["distance"] / 1000.0
+                coords = route["geometry"]["coordinates"]
+                latlon_coords = [[c[1], c[0]] for c in coords]
+                return distance_km, latlon_coords
+    except Exception:
+        pass
+    return None, None
 
 
 # Hàm tính khoảng cách phụ trợ (Haversine)
 def haversine(lat1, lon1, lat2, lon2):
-  R = 6371.0
-  dlat = math.radians(lat2 - lat1)
-  dlon = math.radians(lon2 - lon1)
-  a = (
-      math.sin(dlat / 2) ** 2
-      + math.cos(math.radians(lat1))
-      * math.cos(math.radians(lat2))
-      * math.sin(dlon / 2) ** 2
-  )
-  c = 2 * math.asin(math.sqrt(a))
-  return R * c
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(math.radians(lat1))
+        * math.cos(math.radians(lat2))
+        * math.sin(dlon / 2) ** 2
+    )
+    c = 2 * math.asin(math.sqrt(a))
+    return R * c
 
 
-# Hàm đọc file KMZ có sẵn trên GitHub
+# Hàm đọc file KMZ có sẵn trên GitHub (đã bổ sung đọc thêm trường description/khách hàng)
 def load_stations_from_kmz_path(file_path):
-  stations_list = []
-  try:
-    with open(file_path, "rb") as f:
-      file_bytes = f.read()
+    stations_list = []
+    try:
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
 
-    kml_content = None
-    if zipfile.is_zipfile(io.BytesIO(file_bytes)):
-      with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
-        for filename in z.namelist():
-          if filename.endswith(".kml"):
-            with z.open(filename) as kml_file:
-              kml_content = kml_file.read()
-            break
-    else:
-      kml_content = file_bytes
+        kml_content = None
+        if zipfile.is_zipfile(io.BytesIO(file_bytes)):
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
+                for filename in z.namelist():
+                    if filename.endswith(".kml"):
+                        with z.open(filename) as kml_file:
+                            kml_content = kml_file.read()
+                        break
+        else:
+            kml_content = file_bytes
 
-    if kml_content:
-      root = ET.fromstring(kml_content)
-      namespaces = {"kml": "http://www.opengis.net/kml/2.2"}
-      for placemark in root.findall(".//kml:Placemark", namespaces):
-        name_elem = placemark.find("kml:name", namespaces)
-        coord_elem = placemark.find(".//kml:coordinates", namespaces)
+        if kml_content:
+            root = ET.fromstring(kml_content)
+            namespaces = {"kml": "http://www.opengis.net/kml/2.2"}
+            for placemark in root.findall(".//kml:Placemark", namespaces):
+                name_elem = placemark.find("kml:name", namespaces)
+                desc_elem = placemark.find("kml:description", namespaces)
+                coord_elem = placemark.find(".//kml:coordinates", namespaces)
 
-        if (
-            coord_elem is not None
-            and coord_elem.text
-            and coord_elem.text.strip()
-        ):
-          coords_text = coord_elem.text.strip().split()[0]
-          parts = coords_text.split(",")
-          if len(parts) >= 2:
-            try:
-              lon = float(parts[0])
-              lat = float(parts[1])
-              name = (
-                  name_elem.text.strip()
-                  if name_elem is not None and name_elem.text
-                  else "Tủ pin không tên"
-              )
-              stations_list.append({"name": name, "lat": lat, "lon": lon})
-            except ValueError:
-              continue
-  except Exception as e:
-    st.error(f"Lỗi khi đọc file {file_path}: {e}")
-  return stations_list
+                if (
+                    coord_elem is not None
+                    and coord_elem.text
+                    and coord_elem.text.strip()
+                ):
+                    coords_text = coord_elem.text.strip().split()[0]
+                    parts = coords_text.split(",")
+                    if len(parts) >= 2:
+                        try:
+                            lon = float(parts[0])
+                            lat = float(parts[1])
+                            name = (
+                                name_elem.text.strip()
+                                if name_elem is not None and name_elem.text
+                                else "Tủ pin không tên"
+                            )
+                            description = (
+                                desc_elem.text.strip()
+                                if desc_elem is not None and desc_elem.text
+                                else "Chưa có thông tin khách hàng / ghi chú"
+                            )
+                            stations_list.append({
+                                "name": name,
+                                "lat": lat,
+                                "lon": lon,
+                                "customer_info": description,
+                            })
+                        except ValueError:
+                            continue
+    except Exception as e:
+        st.error(f"Lỗi khi đọc file {file_path}: {e}")
+    return stations_list
 
 
 @st.cache_data
 def load_all_kmz_files():
-  all_stations = []
-  kmz_files = [f for f in os.listdir(".") if f.endswith(".kmz")]
-  for file in kmz_files:
-    stations = load_stations_from_kmz_path(file)
-    all_stations.extend(stations)
-  return all_stations, kmz_files
+    all_stations = []
+    kmz_files = [f for f in os.listdir(".") if f.endswith(".kmz")]
+    for file in kmz_files:
+        stations = load_stations_from_kmz_path(file)
+        all_stations.extend(stations)
+    return all_stations, kmz_files
 
 
 with st.spinner("Đang tải dữ liệu các tủ pin V-GREEN..."):
-  all_stations, found_files = load_all_kmz_files()
+    all_stations, found_files = load_all_kmz_files()
 
 st.sidebar.success(
     f"🔋 Đã nạp thành công {len(all_stations)} tủ pin từ {len(found_files)}"
@@ -163,11 +175,11 @@ loc = streamlit_geolocation()
 default_lat, default_lon = 11.50567, 106.88714
 
 if loc and loc.get("latitude") and loc.get("longitude"):
-  current_lat = loc["latitude"]
-  current_lon = loc["longitude"]
-  st.sidebar.success("Đã định vị thành công vị trí hiện tại!")
+    current_lat = loc["latitude"]
+    current_lon = loc["longitude"]
+    st.sidebar.success("Đã định vị thành công vị trí hiện tại!")
 else:
-  current_lat, current_lon = default_lat, default_lon
+    current_lat, current_lon = default_lat, default_lon
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("2. Hoặc nhập tọa độ thủ công")
@@ -183,18 +195,16 @@ target_lat, target_lon = entered_lat, entered_lon
 # Tính toán khoảng cách tới tất cả các tủ pin để đưa ra danh sách lựa chọn
 station_options = []
 if all_stations:
-  for stn in all_stations:
-    dist_hb = haversine(target_lat, target_lon, stn["lat"], stn["lon"])
-    station_options.append({"station": stn, "dist_hb": dist_hb})
+    for stn in all_stations:
+        dist_hb = haversine(target_lat, target_lon, stn["lat"], stn["lon"])
+        station_options.append({"station": stn, "dist_hb": dist_hb})
 
-  # Sắp xếp theo khoảng cách chim bay tăng dần để lấy top các tủ pin gần nhất
-  station_options = sorted(station_options, key=lambda x: x["dist_hb"])
+    station_options = sorted(station_options, key=lambda x: x["dist_hb"])
 
 # --- LỰA CHỌN NHIỀU ĐƯỜNG ĐI (TỦ PIN) ---
 st.sidebar.markdown("---")
 st.sidebar.header("🚏 Chọn tủ pin muốn xem đường đi")
 
-# Lấy danh sách tên top 10 tủ pin gần nhất để người dùng lựa chọn
 top_stations = station_options[:10]
 station_labels = [
     f"{item['station']['name']} (~{item['dist_hb']:.2f} km)"
@@ -205,78 +215,76 @@ selected_label = st.sidebar.selectbox(
     "Danh sách các tủ pin gần bạn:", station_labels
 )
 
-# Tìm tủ pin mà người dùng đã chọn trong selectbox
 selected_index = station_labels.index(selected_label)
 chosen_station = top_stations[selected_index]["station"]
 
-# Tính đường đi thực tế tới tủ pin được chọn
 real_distance, route_coords = get_osrm_route(
     target_lat, target_lon, chosen_station["lat"], chosen_station["lon"]
 )
 if real_distance is None:
-  real_distance = top_stations[selected_index]["dist_hb"]
-  route_coords = [
-      [target_lat, target_lon],
-      [chosen_station["lat"], chosen_station["lon"]],
-  ]
+    real_distance = top_stations[selected_index]["dist_hb"]
+    route_coords = [
+        [target_lat, target_lon],
+        [chosen_station["lat"], chosen_station["lon"]],
+    ]
 
 # --- KHỞI TẠO BẢN ĐỒ ---
 m = folium.Map(location=[target_lat, target_lon], zoom_start=13, tiles="OpenStreetMap")
 
-# Đánh dấu tất cả các tủ pin (icon màu xanh lá V-GREEN)
 for item in top_stations:
-  stn = item["station"]
-  folium.Marker(
-      location=[stn["lat"], stn["lon"]],
-      popup=stn["name"],
-      icon=folium.Icon(color="green", icon="battery-full", prefix="fa"),
-  ).add_to(m)
+    stn = item["station"]
+    folium.Marker(
+        location=[stn["lat"], stn["lon"]],
+        popup=stn["name"],
+        icon=folium.Icon(color="green", icon="battery-full", prefix="fa"),
+    ).add_to(m)
 
-# Đánh dấu tủ pin đang được chọn xem đường đi (icon màu cam nổi bật)
 folium.Marker(
     location=[chosen_station["lat"], chosen_station["lon"]],
     popup=f"Đang chọn: {chosen_station['name']}",
     icon=folium.Icon(color="orange", icon="bolt", prefix="fa"),
 ).add_to(m)
 
-# Đánh dấu vị trí hiện tại của bạn (icon màu đỏ)
 folium.Marker(
     location=[target_lat, target_lon],
     popup="Vị trí của bạn",
     icon=folium.Icon(color="red", icon="user", prefix="fa"),
 ).add_to(m)
 
-# Vẽ tuyến đường đi thực tế bám theo đường bộ
 if route_coords:
-  folium.PolyLine(
-      locations=route_coords,
-      color="blue",
-      weight=5,
-      opacity=0.8,
-      tooltip=f"Lộ trình tới {chosen_station['name']}",
-  ).add_to(m)
+    folium.PolyLine(
+        locations=route_coords,
+        color="blue",
+        weight=5,
+        opacity=0.8,
+        tooltip=f"Lộ trình tới {chosen_station['name']}",
+    ).add_to(m)
 
 # --- HIỂN THỊ GIAO DIỆN CHÍNH ---
 col_map, col_info = st.columns([2, 1])
 
 with col_map:
-  st.subheader("🗺️ Bản đồ định vị & Lộ trình đổi pin")
-  st_folium(m, width="100%", height=500)
+    st.subheader("🗺️ Bản đồ định vị & Lộ trình đổi pin")
+    st_folium(m, width="100%", height=500)
 
 with col_info:
-  st.subheader("📊 Thông tin tủ pin đã chọn")
-  st.success(f"**Tủ đổi pin:**\n\n🔹 **{chosen_station['name']}**")
-  st.metric(label="Khoảng cách đường đi thực tế", value=f"{real_distance:.2f} km")
+    st.subheader("📊 Thông tin tủ pin đã chọn")
+    st.success(f"**Tủ đổi pin:**\n\n🔹 **{chosen_station['name']}**")
+    
+    # --- HIỂN THỊ THÔNG TIN KHÁCH HÀNG / GHI CHÚ ---
+    st.info(f"👤 **Thông tin khách hàng / Ghi chú:**\n\n{chosen_station.get('customer_info', 'Không có thông tin')}")
 
-  st.write(
-      f"📍 **Tọa độ tủ:** `{chosen_station['lat']}`, `{chosen_station['lon']}`"
-  )
+    st.metric(label="Khoảng cách đường đi thực tế", value=f"{real_distance:.2f} km")
 
-  maps_url = (
-      f"https://www.google.com/maps/dir/?api=1&destination="
-      f"{chosen_station['lat']},{chosen_station['lon']}"
-  )
-  st.markdown(
-      f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
-      unsafe_allow_html=True,
-  )
+    st.write(
+        f"📍 **Tọa độ tủ:** `{chosen_station['lat']}`, `{chosen_station['lon']}`"
+    )
+
+    maps_url = (
+        f"https://www.google.com/maps/dir/?api=1&destination="
+        f"{chosen_station['lat']},{chosen_station['lon']}"
+    )
+    st.markdown(
+        f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
+        unsafe_allow_html=True,
+    )
