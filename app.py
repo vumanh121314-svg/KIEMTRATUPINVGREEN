@@ -273,4 +273,59 @@ if all_stations:
     station_options.append({"station": stn, "dist_hb": dist_hb})
   station_options = sorted(station_options, key=lambda x: x["dist_hb"])
 
-if station_options
+if station_options:
+  st.markdown(
+      '<div class="section-title">🚏 Chọn tủ đổi pin gần nhất để xem đường'
+      " đi</div>",
+      unsafe_allow_html=True,
+  )
+
+  top_stations = station_options[:10]
+  station_labels = [
+      f"{item['station']['name']} (~{item['dist_hb']:.2f} km)"
+      for item in top_stations
+  ]
+
+  selected_label = st.selectbox(
+      "Danh sách tủ pin:", station_labels, label_visibility="collapsed"
+  )
+  selected_index = station_labels.index(selected_label)
+  chosen_station = top_stations[selected_index]["station"]
+
+  # Tính khoảng cách thực tế qua OSRM
+  real_distance, route_coords = get_osrm_route(
+      st.session_state["lat"],
+      st.session_state["lon"],
+      chosen_station["lat"],
+      chosen_station["lon"],
+  )
+  if real_distance is None:
+    real_distance = top_stations[selected_index]["dist_hb"]
+    route_coords = [
+        [st.session_state["lat"], st.session_state["lon"]],
+        [chosen_station["lat"], chosen_station["lon"]],
+    ]
+
+  # Nút bấm trung tâm "Tính khoảng cách & Lộ trình"
+  if st.button(
+      "🔍 Tính khoảng cách & Chỉ đường chi tiết",
+      use_container_width=True,
+      type="primary",
+  ):
+    st.success(
+        f"**Tủ đổi pin được chọn:** {chosen_station['name']} — Khoảng cách thực"
+        f" tế: **{real_distance:.2f} km**"
+    )
+
+    maps_url = (
+        f"https://www.google.com/maps/dir/?api=1&destination="
+        f"{chosen_station['lat']},{chosen_station['lon']}"
+    )
+    st.markdown(
+        f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
+        unsafe_allow_html=True,
+    )
+else:
+  st.warning(
+      "Chưa tìm thấy dữ liệu trạm pin nào trong các file KMZ trên GitHub."
+  )
