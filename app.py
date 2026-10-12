@@ -12,10 +12,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.title("🔋 Tìm Đường Ngắn Nhất Đến Tủ Pin V-GREEN (Hỗ trợ 4 file .kmz)")
+st.title("🔋 Tìm Đường Ngắn Nhất Đến Tủ Pin V-GREEN (Hỗ trợ file .kmz)")
 st.markdown(
-    "Tải lên các file `.kmz` của bạn, nhập vị trí cần tìm kiếm để hệ thống trích"
-    " xuất tọa độ từ các file và tìm ra tủ pin gần nhất."
+    "Tải lên các file `.kmz` của bạn, nhập vị trí cần tìm kiếm để hệ thống so"
+    " sánh và tìm ra tủ pin gần nhất."
 )
 
 
@@ -34,14 +34,13 @@ def haversine(lat1, lon1, lat2, lon2):
   return R * c
 
 
-# Hàm tự động giải nén và đọc file .kmz để lấy tọa độ các điểm
+# Hàm trích xuất dữ liệu an toàn từ file KMZ hoặc KML
 def load_stations_from_kmz(uploaded_file):
   stations_list = []
   try:
     file_bytes = uploaded_file.read()
     kml_content = None
 
-    # Mở file .kmz như một file zip để tìm file doc.kml bên trong
     if zipfile.is_zipfile(io.BytesIO(file_bytes)):
       with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
         for filename in z.namelist():
@@ -55,18 +54,34 @@ def load_stations_from_kmz(uploaded_file):
     if kml_content:
       root = ET.fromstring(kml_content)
       namespaces = {"kml": "http://www.opengis.net/kml/2.2"}
+      
       for placemark in root.findall(".//kml:Placemark", namespaces):
         name_elem = placemark.find("kml:name", namespaces)
         coord_elem = placemark.find(".//kml:coordinates", namespaces)
-        if name_elem is not None and coord_elem is not None:
+
+        # Kiểm tra kỹ để tránh lỗi NoneType khi thẻ name hoặc coordinates bị trống
+        if (
+            coord_elem is not None
+            and coord_elem.text
+            and coord_elem.text.strip()
+        ):
           coords_text = coord_elem.text.strip().split()[0]
           parts = coords_text.split(",")
           if len(parts) >= 2:
-            stations_list.append({
-                "name": name_elem.text.strip(),
-                "lat": float(parts[1]),
-                "lon": float(parts[0]),
-            })
+            try:
+              lon = float(parts[0])
+              lat = float(parts[1])
+              
+              # Lấy tên, nếu không có tên thì đặt tên mặc định
+              name = (
+                  name_elem.text.strip()
+                  if name_elem is not None and name_elem.text
+                  else "Điểm không tên"
+              )
+
+              stations_list.append({"name": name, "lat": lat, "lon": lon})
+            except ValueError:
+              continue
   except Exception as e:
     st.sidebar.error(f"Lỗi đọc file {uploaded_file.name}: {e}")
   return stations_list
