@@ -9,65 +9,51 @@ import streamlit as st
 from streamlit_folium import st_folium
 from streamlit_geolocation import streamlit_geolocation
 
-# Cấu hình giao diện rộng và tương thích trên mọi thiết bị
+# Cấu hình giao diện & Responsive trên mọi thiết bị
 st.set_page_config(
-    page_title="Tra cứu tủ đổi pin V-Green",
+    page_title="Hệ Thống Trạm Đổi Pin V-GREEN",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="auto",
 )
 
-# --- CSS TÙY CHỈNH GIAO DIỆN & RESPONSIVE ---
+# --- TÙY CHỈNH GIAO DIỆN BACKGROUND & THƯƠNG HIỆU V-GREEN ---
 st.markdown(
     """
     <style>
     .stApp {
-        background-color: #0e1117;
-        color: #ffffff;
+        background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
     }
-    .top-title {
-        background-color: #161b22;
-        padding: 15px 20px;
+    .main-header {
+        background-color: #15803d;
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .stButton>button {
+        background-color: #16a34a;
+        color: white;
         border-radius: 8px;
-        font-size: 20px;
+        border: none;
         font-weight: bold;
-        color: #ffffff;
-        margin-bottom: 15px;
-        border-left: 5px solid #22c55e;
     }
-    .section-title {
-        color: #ffffff;
-        font-size: 16px;
-        font-weight: bold;
-        margin-top: 15px;
-        margin-bottom: 10px;
-    }
-    .info-bar {
-        background-color: #161b22;
-        padding: 10px 15px;
-        border-radius: 6px;
-        font-size: 14px;
-        color: #84cc16;
-        margin-bottom: 10px;
-    }
-    .result-card {
-        background-color: #161b22;
-        padding: 15px;
-        border-radius: 8px;
-        border: 1px solid #22c55e;
-        margin-top: 15px;
+    .stButton>button:hover {
+        background-color: #15803d;
+        color: white;
     }
     </style>
+    <div class="main-header">
+        <h1>🔋 V-GREEN - HỆ THỐNG TỦ ĐỔI PIN THÔNG MINH</h1>
+        <p>Tìm đường đi chính xác tới các tủ pin gần vị trí của bạn nhất</p>
+    </div>
 """,
     unsafe_allow_html=True,
 )
 
-st.markdown(
-    '<div class="top-title">🔋 Tra cứu tủ đổi pin V-Green</div>',
-    unsafe_allow_html=True,
-)
 
-
-# Hàm gọi API OSRM lấy tuyến đường thực tế và khoảng cách đường bộ
+# Hàm gọi API OSRM lấy tuyến đường thực tế
 def get_osrm_route(lat1, lon1, lat2, lon2):
   url = f"http://router.project-osrm.org/route/v1/driving/{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
   try:
@@ -85,7 +71,7 @@ def get_osrm_route(lat1, lon1, lat2, lon2):
   return None, None
 
 
-# Hàm tính khoảng cách Haversine
+# Hàm tính khoảng cách phụ trợ (Haversine)
 def haversine(lat1, lon1, lat2, lon2):
   R = 6371.0
   dlat = math.radians(lat2 - lat1)
@@ -100,12 +86,13 @@ def haversine(lat1, lon1, lat2, lon2):
   return R * c
 
 
-# Hàm đọc file KMZ trên GitHub
+# Hàm đọc file KMZ có sẵn trên GitHub
 def load_stations_from_kmz_path(file_path):
   stations_list = []
   try:
     with open(file_path, "rb") as f:
       file_bytes = f.read()
+
     kml_content = None
     if zipfile.is_zipfile(io.BytesIO(file_bytes)):
       with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
@@ -123,6 +110,7 @@ def load_stations_from_kmz_path(file_path):
       for placemark in root.findall(".//kml:Placemark", namespaces):
         name_elem = placemark.find("kml:name", namespaces)
         coord_elem = placemark.find(".//kml:coordinates", namespaces)
+
         if (
             coord_elem is not None
             and coord_elem.text
@@ -137,13 +125,13 @@ def load_stations_from_kmz_path(file_path):
               name = (
                   name_elem.text.strip()
                   if name_elem is not None and name_elem.text
-                  else "Tủ pin"
+                  else "Tủ pin không tên"
               )
               stations_list.append({"name": name, "lat": lat, "lon": lon})
             except ValueError:
               continue
-  except Exception:
-    pass
+  except Exception as e:
+    st.error(f"Lỗi khi đọc file {file_path}: {e}")
   return stations_list
 
 
@@ -154,124 +142,141 @@ def load_all_kmz_files():
   for file in kmz_files:
     stations = load_stations_from_kmz_path(file)
     all_stations.extend(stations)
-  return all_stations
+  return all_stations, kmz_files
 
 
-all_stations = load_all_kmz_files()
+with st.spinner("Đang tải dữ liệu các tủ pin V-GREEN..."):
+  all_stations, found_files = load_all_kmz_files()
 
-# --- QUẢN LÝ SESSION STATE ---
-default_lat, default_lon = 10.734728, 106.663666
-
-if "lat" not in st.session_state:
-  st.session_state["lat"] = default_lat
-if "lon" not in st.session_state:
-  st.session_state["lon"] = default_lon
-if "selected_station" not in st.session_state:
-  st.session_state["selected_station"] = None
-
-# --- PHẦN 1: BẢN ĐỒ & ĐỊNH VỊ VỊ TRÍ ---
-st.markdown(
-    '<div class="section-title">📍 Bản đồ & Định vị vị trí</div>',
-    unsafe_allow_html=True,
+st.sidebar.success(
+    f"🔋 Đã nạp thành công {len(all_stations)} tủ pin từ {len(found_files)}"
+    " file KMZ!"
 )
 
+# --- XÁC ĐỊNH VỊ TRÍ NGƯỜI DÙNG ---
+st.sidebar.markdown("---")
+st.sidebar.header("📍 Vị trí của bạn")
+
+st.sidebar.subheader("1. Lấy vị trí GPS tự động")
 loc = streamlit_geolocation()
-if loc and loc.get("latitude") and loc.get("longitude"):
-  if (
-      loc["latitude"] != st.session_state["lat"]
-      or loc["longitude"] != st.session_state["lon"]
-  ):
-    st.session_state["lat"] = loc["latitude"]
-    st.session_state["lon"] = loc["longitude"]
-    st.rerun()
 
-# Khởi tạo bản đồ
-m = folium.Map(
-    location=[st.session_state["lat"], st.session_state["lon"]],
-    zoom_start=13,
-    tiles="OpenStreetMap",
+default_lat, default_lon = 11.50567, 106.88714
+
+if loc and loc.get("latitude") and loc.get("longitude"):
+  current_lat = loc["latitude"]
+  current_lon = loc["longitude"]
+  st.sidebar.success("Đã định vị thành công vị trí hiện tại!")
+else:
+  current_lat, current_lon = default_lat, default_lon
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("2. Hoặc nhập tọa độ thủ công")
+entered_lat = st.sidebar.number_input(
+    "Vĩ độ (Lat)", value=float(current_lat), format="%.6f"
+)
+entered_lon = st.sidebar.number_input(
+    "Kinh độ (Lon)", value=float(current_lon), format="%.6f"
 )
 
-# Đánh dấu vị trí người dùng
+target_lat, target_lon = entered_lat, entered_lon
+
+# Tính toán khoảng cách tới tất cả các tủ pin để đưa ra danh sách lựa chọn
+station_options = []
+if all_stations:
+  for stn in all_stations:
+    dist_hb = haversine(target_lat, target_lon, stn["lat"], stn["lon"])
+    station_options.append({"station": stn, "dist_hb": dist_hb})
+
+  # Sắp xếp theo khoảng cách chim bay tăng dần để lấy top các tủ pin gần nhất
+  station_options = sorted(station_options, key=lambda x: x["dist_hb"])
+
+# --- LỰA CHỌN NHIỀU ĐƯỜNG ĐI (TỦ PIN) ---
+st.sidebar.markdown("---")
+st.sidebar.header("🚏 Chọn tủ pin muốn xem đường đi")
+
+# Lấy danh sách tên top 10 tủ pin gần nhất để người dùng lựa chọn
+top_stations = station_options[:10]
+station_labels = [
+    f"{item['station']['name']} (~{item['dist_hb']:.2f} km)"
+    for item in top_stations
+]
+
+selected_label = st.sidebar.selectbox(
+    "Danh sách các tủ pin gần bạn:", station_labels
+)
+
+# Tìm tủ pin mà người dùng đã chọn trong selectbox
+selected_index = station_labels.index(selected_label)
+chosen_station = top_stations[selected_index]["station"]
+
+# Tính đường đi thực tế tới tủ pin được chọn
+real_distance, route_coords = get_osrm_route(
+    target_lat, target_lon, chosen_station["lat"], chosen_station["lon"]
+)
+if real_distance is None:
+  real_distance = top_stations[selected_index]["dist_hb"]
+  route_coords = [
+      [target_lat, target_lon],
+      [chosen_station["lat"], chosen_station["lon"]],
+  ]
+
+# --- KHỞI TẠO BẢN ĐỒ ---
+m = folium.Map(location=[target_lat, target_lon], zoom_start=13, tiles="OpenStreetMap")
+
+# Đánh dấu tất cả các tủ pin (icon màu xanh lá V-GREEN)
+for item in top_stations:
+  stn = item["station"]
+  folium.Marker(
+      location=[stn["lat"], stn["lon"]],
+      popup=stn["name"],
+      icon=folium.Icon(color="green", icon="battery-full", prefix="fa"),
+  ).add_to(m)
+
+# Đánh dấu tủ pin đang được chọn xem đường đi (icon màu cam nổi bật)
 folium.Marker(
-    location=[st.session_state["lat"], st.session_state["lon"]],
+    location=[chosen_station["lat"], chosen_station["lon"]],
+    popup=f"Đang chọn: {chosen_station['name']}",
+    icon=folium.Icon(color="orange", icon="bolt", prefix="fa"),
+).add_to(m)
+
+# Đánh dấu vị trí hiện tại của bạn (icon màu đỏ)
+folium.Marker(
+    location=[target_lat, target_lon],
     popup="Vị trí của bạn",
     icon=folium.Icon(color="red", icon="user", prefix="fa"),
 ).add_to(m)
 
-# Tìm tủ pin gần nhất mặc định để chọn sẵn nếu chưa chọn
-nearest_default = None
-min_d = float("inf")
-if all_stations:
-  for stn in all_stations:
-    d = haversine(
-        st.session_state["lat"],
-        st.session_state["lon"],
-        stn["lat"],
-        stn["lon"],
-    )
-    if d < min_d:
-      min_d = d
-      nearest_default = stn
-
-  if not st.session_state["selected_station"] and nearest_default:
-    st.session_state["selected_station"] = nearest_default
-
-# Đánh dấu các tủ pin lên bản đồ (Icon màu xanh lá)
-for stn in all_stations:
-  is_selected = (
-      st.session_state["selected_station"]
-      and st.session_state["selected_station"]["name"] == stn["name"]
-      and st.session_state["selected_station"]["lat"] == stn["lat"]
-  )
-  icon_color = "orange" if is_selected else "green"
-  icon_type = "bolt" if is_selected else "battery-full"
-
-  folium.Marker(
-      location=[stn["lat"], stn["lon"]],
-      popup=stn["name"],
-      icon=folium.Icon(color=icon_color, icon=icon_type, prefix="fa"),
+# Vẽ tuyến đường đi thực tế bám theo đường bộ
+if route_coords:
+  folium.PolyLine(
+      locations=route_coords,
+      color="blue",
+      weight=5,
+      opacity=0.8,
+      tooltip=f"Lộ trình tới {chosen_station['name']}",
   ).add_to(m)
 
-# Nếu đã chọn tủ pin, vẽ đường đi thực tế trên bản đồ
-route_coords = []
-real_distance = 0
-if st.session_state["selected_station"]:
-  sel = st.session_state["selected_station"]
-  real_distance, route_coords = get_osrm_route(
-      st.session_state["lat"], st.session_state["lon"], sel["lat"], sel["lon"]
+# --- HIỂN THỊ GIAO DIỆN CHÍNH ---
+col_map, col_info = st.columns([2, 1])
+
+with col_map:
+  st.subheader("🗺️ Bản đồ định vị & Lộ trình đổi pin")
+  st_folium(m, width="100%", height=500)
+
+with col_info:
+  st.subheader("📊 Thông tin tủ pin đã chọn")
+  st.success(f"**Tủ đổi pin:**\n\n🔹 **{chosen_station['name']}**")
+  st.metric(label="Khoảng cách đường đi thực tế", value=f"{real_distance:.2f} km")
+
+  st.write(
+      f"📍 **Tọa độ tủ:** `{chosen_station['lat']}`, `{chosen_station['lon']}`"
   )
-  if real_distance is None:
-    real_distance = haversine(
-        st.session_state["lat"], st.session_state["lon"], sel["lat"], sel["lon"]
-    )
-    route_coords = [
-        [st.session_state["lat"], st.session_state["lon"]],
-        [sel["lat"], sel["lon"]],
-    ]
 
-  if route_coords:
-    folium.PolyLine(
-        locations=route_coords,
-        color="blue",
-        weight=5,
-        opacity=0.8,
-        tooltip=f"Lộ trình tới {sel['name']}",
-    ).add_to(m)
-
-# Hiển thị bản đồ
-map_output = st_folium(m, width="100%", height=380)
-
-# Xử lý khi click vào bản đồ để đổi vị trí hiện tại
-if map_output and map_output.get("last_clicked"):
-  clicked_lat = map_output["last_clicked"]["lat"]
-  clicked_lon = map_output["last_clicked"]["lng"]
-  if (
-      clicked_lat != st.session_state["lat"]
-      or clicked_lon != st.session_state["lon"]
-  ):
-    st.session_state["lat"] = clicked_lat
-    st.session_state["lon"] = clicked_lon
-    st.rerun()
-
-#
+  maps_url = (
+      f"https://www.google.com/maps/dir/?api=1&destination="
+      f"{chosen_station['lat']},{chosen_station['lon']}"
+  )
+  st.markdown(
+      f"[👉 Mở chỉ đường chi tiết trên Google Maps]({maps_url})",
+      unsafe_allow_html=True,
+  )
